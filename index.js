@@ -42,7 +42,10 @@ function chatConfig(){
  }
  const entry=settings.chatProfiles[key];
  if(!entry.partPrompts)entry.partPrompts={...EXTRACT_INSTRUCTIONS};
- if(typeof entry.qwenPrompt!=='string')entry.qwenPrompt=QWEN_DEFAULT;
+ if(typeof entry.qwenPrompt!=='string' || (entry.qwenPrompt.startsWith('You are a VISUAL SCENE EXTRACTOR for NovelAI V5 Full.') && entry.qwenPrompt.includes('Return JSON only:'))) {
+  entry.qwenPrompt=QWEN_DEFAULT; // migrate only previous built-in template, never overwrite a custom one
+  persist();
+ }
  return entry;
 }
 function activeEntry(kind,key){return settings[kind]?.[key]||null;}
@@ -294,7 +297,7 @@ function createPanel(){
   </details>`;
  };
  root.innerHTML=`
- <details open class="ncs-root"><summary><i class="fa-solid fa-book-open" aria-hidden="true"></i> NAI Comic Studio · v0.2.2</summary>
+ <details open class="ncs-root"><summary><i class="fa-solid fa-book-open" aria-hidden="true"></i> NAI Comic Studio · v0.2.3</summary>
  <div class="ncs-body">
   <div class="ncs-toolbar"><label class="ncs-switch"><input id="nai-comic-enabled" type="checkbox"> ✓ Включено</label><label class="ncs-switch"><input id="nai-comic-auto" type="checkbox"> <i class="fa-solid fa-wand-magic-sparkles"></i> Автоматически (Anlas)</label><label class="ncs-switch"><input id="nai-comic-attach" type="checkbox"> <i class="fa-solid fa-paperclip"></i> К сообщению</label></div>
   <p class="ncs-note">Каждый чат помнит свои подсказки и пресеты. Сначала предпросмотр — затем платная генерация.</p>

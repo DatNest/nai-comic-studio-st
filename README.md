@@ -1,55 +1,21 @@
-# NAI Comic Studio v0.2.2 — Scene Tags & Visible Preview
+# NAI Comic Studio v0.2.3 — Shino scene directing and official NovelAI V5 tags
 
-Update for the same repository; upload the five files to the repository root and replace existing files. In SillyTavern update extension and reload with Ctrl+F5. Previous settings, NovelAI key, character library, styles and negatives are stored in settings and not deleted by this update.
+A minimal update over v0.2.2. Settings remain under the same SillyTavern extension key `nai_comic_studio`.
 
-- The NovelAI V5 request keeps its structured `v4_prompt.caption.base_caption` and `char_captions` and its corresponding `v4_negative_prompt.caption`. Matching the existing SillyImages request builder.
-- The positive scene now always contains explicit comic/page/panel count/main panel/inset tags. Qwen is asked for precise comic staging and ONLY scene state (not appearances). Persistent custom Qwen instructions stay editable; a small mandatory format contract is appended to all of them.
-- Character action/clothing is foregrounded before the long descriptions in their personal character caption. Every enabled description stays present; no library entries are deleted. Character centers match the old generator default (0.5,0.5 with use_coords=false).
-- Press **1. Qwen: сцена** to regenerate the SCENE when prior output is wrong, then **2. Предпросмотр**. The assembled request appears DIRECTLY BELOW the buttons with separate base scene/style, character, persona, shared negative and character negatives. You can copy the entire positive prompt or provider JSON. No NovelAI Anlas are used until **3. Создать**.
-- The preview checks for an unmatched `::` in your style and warns; it does NOT silently rewrite the style.
-- Other libraries, per-chat settings, NPC activation, negative prompts, Qwen connection, presets and auto-generation are unchanged.
+## What changed
+- Restores the original detailed Shino `naicom (18)` visual directing language, adapted to the current JSON scene/character/persona fields. Qwen only extracts scene, clothing, actions and emotions; the existing character library remains separate.
+- Automatically migrates prior built-in default Qwen scene prompt to the restored Shino edition. Any personalized main Qwen prompt not matching the old default is kept unchanged. You can always reset the main prompt using the existing UI.
+- Official NovelAI V5 model still receives `input` and `v4_prompt.caption.base_caption` for the base, with separate unnumbered character `char_captions` and `v4_negative_prompt` for undesired content. Literal `|` in the debug preview is presentation ONLY, not transmitted as the underlying split format.
+- Count tags (`1boy`, `1girl`) and actual recognized composition tags (`comic`, `comic page`, `3 panels`, `multiple panels`) precede the scene. Style is added once, **after** the main scene composition, but still in the base caption. This follows NovelAI guidance that early prompt instructions matter most.
+- Repairs only an unpaired numeric tag weight when generating: `0.9::backlighting,` becomes `0.9::backlighting::,`. The saved style text is not modified.
+- Maintains character descriptions / negatives from the existing libraries, chat-specific settings, debug preview and connection profiles.
 
-**Limitations:** A text-only diffusion model cannot guarantee facial fidelity or exact multi-panel composition. The code and structured request can be verified locally, not an actual NovelAI generation on your server.
+## Installation
+Replace `index.js`, `core.mjs`, `style.css`, `manifest.json`, and `README.md` in the root of the **same GitHub repo** (no new repository), commit, run SillyTavern Extension Update and Ctrl+F5. Confirm the panel heading shows `NAI Comic Studio · v0.2.3`.
 
-# NAI Comic Studio — v0.2.0 beta
+## Free test before Anlas
+1. Select your chat and Qwen profile; open **Сцена от Qwen**. Use **Свой главный промпт Qwen -> Вернуть базовую инструкцию** if you had customized it and want the exact Shino adapted version.
+2. Press **1. Qwen: сцена** to regenerate the scene fields.
+3. Press **2. Предпросмотр · бесплатно**. Check the base has `1boy, 1girl, comic, comic page, ...` and actual main-frame scene and style. Check Yukio/Ness have separate appearance captions with clothing/actions. Check negative fields and provider JSON. Do not pay unless correct.
 
-Автономное расширение для SillyTavern и NovelAI V5. Не требует ExtBlocks или старого генератора изображений. Управляет внешностью активного персонажа и персоны, сценой, Qwen, стиль-пресетами, негативами, NPC и отладкой. **Перед платной генерацией есть предпросмотр всего JSON-запроса NovelAI.**
-
-## Обновление версии 0.1 через GitHub
-
-Если NAI Comic Studio уже установлено из собственного репозитория GitHub:
-
-1. **Не создавайте новый репозиторий.** Откройте свой существующий репозиторий.
-2. Распакуйте ZIP обновления и загрузите в **корень того же репозитория** файлы `manifest.json`, `index.js`, `core.mjs`, `style.css`, `README.md`, заменив одноимённые существующие файлы. Сделайте Commit changes. Убедитесь, что файлы находятся в корне, а не в дополнительной папке.
-3. В SillyTavern откройте **Расширения → Управление расширениями → Update** рядом с этим расширением. Перезагрузите страницу `Ctrl+F5`.
-4. Заголовок панели должен показывать **NAI Comic Studio · v0.2**. Пока его нет, загружен старый код.
-5. **Не нажимайте «Создать картинку» до проверки**: сначала `1. Qwen: сцена`, потом `2. Предпросмотр · бесплатно`. Проверьте заполненный стиль и негатив, секции обеих анкет и NPC.
-
-Идентификатор настроек `nai_comic_studio` не менялся: **существующие анкеты, ключ и пресеты версии 0.1 сохраняются.** В новой версии для каждого чата автоматически создаётся собственный набор настроек без удаления глобальных библиотек. Желательно предварительно использовать экспорт резервной копии из панели старой версии.
-
-Новая установка: создайте свой GitHub-репозиторий, загрузите пять файлов в корень и установите его URL через SillyTavern → Extensions → Install extension, если на сервере разрешена установка расширений. Не загружайте в GitHub API-ключи или приватные настройки.
-
-## Что изменилось в v0.2
-
-- **Стиль и общий негатив** теперь явно назначаются для текущего чата из двух независимых библиотек и отображаются в отладке. Если соответствующий выбранный пресет пуст или отсутствует, **генерация отменяется до запроса NovelAI и расхода Anlas**. Стиль передаётся в `v4_prompt.caption.base_caption`; глобальный негатив — в `negative_prompt` и `v4_negative_prompt.caption.base_caption`.
-- **Негативы персонажа и персоны**: постоянные поля в библиотечных анкетах и отдельные *поля для текущего чата*; они комбинируются и помещаются в персональные `v4_negative_prompt.caption.char_captions` каждого персонажа. Негатив NPC передаётся в собственную секцию NPC.
-- **Qwen**: главный промпт целиком редактируется из интерфейса; есть кнопка возврата исходной инструкции. Отдельные инструкции для **одежды, действий и эмоций** активного персонажа и активной персоны — шесть редактируемых инструкций. Они сохраняются для конкретного чата, Qwen видит их при извлечении следующей сцены.
-- **Состояние текущей сцены**: отдельные редактируемые поля для одежды, действий и эмоций каждого участника. Внешность не повторяется Qwen: базовые описания подставляются из собственных библиотек программно.
-- **NPC по имени**: отдельная библиотека NPC с именем, альтернативными триггерами через запятую, описанием внешности, тегом пола и негативом. При упоминании имени в недавних RP-сообщениях NPC попадает в список разрешённых для Qwen. В NovelAI добавляется только если Qwen подтвердил его **присутствие в текущем моменте**. Упоминания в прошлом не должны создавать случайных людей. Добавление NPC ограничено сохранённой библиотекой.
-- **Персонажи и персоны**: дополнительные записи внешности теперь сворачиваются по отдельности. Анкеты автоматически переключаются по ID карточки SillyTavern и активному аватару персоны. После смены активной персоны нужно извлечь сцену заново, чтобы не использовать чужие действия.
-- **Интерфейс**: компактные раскрывающиеся разделы, значки FontAwesome с текстовыми подписями, настраиваемый режим «Удобное чтение» с Verdana/Tahoma, увеличенным межстрочным интервалом, крупными кнопками и видимым фокусом клавиатуры. Никакие шрифты не скачиваются.
-- **Отладка**: показываются выбранный стиль, общий и адресные негативы, состояние трекера одежды, сырой ответ Qwen, собранный положительный промпт и полное тело JSON NovelAI. Доступен экспорт диагностики без ключа.
-
-## Порядок использования
-
-1. В **Пресеты стиля и негативов** выберите «Новелла» и подходящий негатив, убедитесь, что рядом написано количество символов, а не сообщение о пустом пресете.
-2. В **Этот чат** при желании задайте негативы участников и инструкции для одежды/действий/эмоций. Они сохраняются автоматически.
-3. В **Сцена от Qwen** выберите Connection Profile; нажмите **1. Qwen: сцена**. При необходимости поправьте извлечённые действия/одежду/эмоции.
-4. Нажмите **2. Предпросмотр**. Проверьте все компоненты и JSON в разделе **Отладка**. Это не тратит Anlas.
-5. Нажмите **3. Создать** только если всё верно. Режим автогенерации по умолчанию выключен.
-
-## Ограничения
-
-Это **бета-версия**: протестированы синтаксис JavaScript, структурная сборка сцены, анкеты, NPC, негативы и разделение NovelAI V5, но реальная работа на удалённом сервере и ответы Qwen/NovelAI в вашей конфигурации не воспроизведены. Наличие логов и предпросмотра помогает устранить ошибки до платного запроса. CORS и доступность API зависят от сервера. Даже раздельные текстовые описания не гарантируют идеального сходства персонажей.
-
-Настройки SillyTavern сохраняются в `extensionSettings.nai_comic_studio`, исходные библиотеки другого расширения не изменяются. Глобальные библиотеки стилей и негативов общие между чатами, но **выбор активного пресета индивидуален для чата**. Правки текста общего пресета отражаются во всех чатах, где он выбран; чтобы не менять другие чаты, создайте отдельный пресет.
+This update makes tag packing correct and easier to inspect; neither prompting nor NovelAI API guarantees perfect anatomy, full character consistency or successful multi-panel interpretation.

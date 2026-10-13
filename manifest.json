@@ -6,6 +6,6 @@
   "js": "index.js",
   "css": "style.css",
   "author": "OpenAI-assisted independent community extension",
-  "version": "0.2.2-beta",
+  "version": "0.2.3",
   "auto_update": false
 }

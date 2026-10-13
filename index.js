@@ -1,4 +1,4 @@
-import { BASE_DEFAULTS, QWEN_DEFAULT, SCENE_FORMAT_CONTRACT, EXTRACT_INSTRUCTIONS, newChatProfile, effectivePreset, detectNpcs, importOldLibrary, libDescription, makePrompt, novelaiRequest, parseSceneLLM, stripRpText, trackerClothing } from './core.mjs';
+import { BASE_DEFAULTS, QWEN_DEFAULT, SCENE_FORMAT_CONTRACT, composeStyleScene, EXTRACT_INSTRUCTIONS, newChatProfile, effectivePreset, detectNpcs, importOldLibrary, libDescription, makePrompt, novelaiRequest, parseSceneLLM, stripRpText, trackerClothing } from './core.mjs';
 import { oai_settings, proxies, chat_completion_sources } from '../../../openai.js';
 
 const MODULE = 'nai_comic_studio';
@@ -185,14 +185,17 @@ async function buildPreview(showInline=false){
  const body=novelaiRequest(settings,assembled);
  const snap={at:new Date().toISOString(),chat:currentChatId(),identities:ident,scene,style,negative,characterNegatives:assembled.characterNegatives,
   npcNames:assembled.npcNames,positive:assembled.display,providerBody:body};
- prepared={snap,body};settings.lastRequest=snap;persist();
+ prepared={snap,body,sections:{style:assembled.positive.style,scene:assembled.positive.scene}};settings.lastRequest=snap;persist();
  if(el('preview-inline')){
   const panel=el('preview-inline');panel.hidden=false;panel.open=true;
-  el('preview-base').value=assembled.positive.base;
+  el('preview-style').value=assembled.positive.style;
+  el('preview-base').value=assembled.positive.scene;
   el('preview-character').value=assembled.positive.chars[0]||'';
   el('preview-persona').value=assembled.positive.chars[1]||'';
   el('preview-negative').value=negative;
-  el('preview-char-negatives').value=assembled.characterNegatives.map((t,i)=>`${i+1}: ${t||'(none)'}`).join('\n');
+  el('preview-char-negative').value=assembled.characterNegatives[0]||'';
+  el('preview-persona-negative').value=assembled.characterNegatives[1]||'';
+  el('preview-merged').value=assembled.display;
   if(showInline && typeof panel.scrollIntoView==='function')setTimeout(()=>panel.scrollIntoView({behavior:'smooth',block:'nearest'}),0);
  }
  el('final-prompt').value=assembled.display;
@@ -205,6 +208,33 @@ async function buildPreview(showInline=false){
  setStatus(`Предпросмотр готов ниже кнопок: стиль ${style.length} символов, негатив ${negative.length}, ${lengths.length} секции персонажей. Anlas не потрачены.`+(badWeight?' ⚠ Проверь стиль: обнаружена незакрытая пара :: в NovelAI-тегах.':''));
  log('INFO',`Preview: style=${style.length} chars, negative=${negative.length} chars, character sections=${lengths.length}, NPC=${assembled.npcNames.join(',')||'none'}`);
  return snap;
+}
+/** Edits in the preview are request-local: they never overwrite library/stored style presets. */
+function syncPreviewDraft(){
+ if(!prepared?.body || prepared.snap.chat!==currentChatId())return;
+ const body=prepared.body, caption=body.parameters?.v4_prompt?.caption, negatives=body.parameters?.v4_negative_prompt?.caption;
+ if(!caption || !negatives)return;
+ const style=el('preview-style').value, scene=el('preview-base').value;
+ const base=composeStyleScene(style,scene);
+ body.input=base;
+ caption.base_caption=base;
+ caption.char_captions[0].char_caption=el('preview-character').value;
+ caption.char_captions[1].char_caption=el('preview-persona').value;
+ const neg=el('preview-negative').value;
+ body.parameters.negative_prompt=neg;
+ negatives.base_caption=neg;
+ negatives.char_captions[0].char_caption=el('preview-char-negative').value;
+ negatives.char_captions[1].char_caption=el('preview-persona-negative').value;
+ const display=[base,...caption.char_captions.map(c=>c.char_caption)].join(' | ');
+ prepared.snap.style=style; prepared.snap.negative=neg;prepared.snap.positive=display;
+ prepared.snap.providerBody=body;prepared.sections={style,scene};settings.lastRequest=prepared.snap;
+ el('preview-merged').value=display;
+ el('final-prompt').value=display;
+ el('provider-json').value=JSON.stringify(body,null,2);
+ if(el('debug-style'))el('debug-style').value=style;
+ if(el('debug-negative'))el('debug-negative').value=neg;
+ setStatus('Изменения в предпросмотре применены к следующей генерации. Анкеты и пресеты не изменены.');
+ // Deliberately do NOT call persist on each keystroke in huge prompt fields.
 }
 async function generateNovelAI(body){
  if(!settings.apiKey.trim())throw new Error('Не указан ключ NovelAI.');
@@ -222,13 +252,13 @@ async function uploadImage(base64){const c=ctx(),char=c.characters?.[c.character
  const out=await res.json();return out.path?.startsWith('/')?out.path:'/'+out.path;
 }
 async function attachImage(url,messageId){const c=ctx();const m=c.chat?.[messageId];if(!m)return;
- const html=`<!-- NAI_COMIC_START -->\n<img class="nai-comic-generated" src="${esc(url)}" alt="NovelAI comic illustration" />\n<!-- NAI_COMIC_END -->`;
+ const html=`<!-- NAI_COMIC_START -->\n<span class="nai-comic-image-wrap"><img class="nai-comic-generated" src="${esc(url)}" alt="NovelAI comic illustration" /><button type="button" class="nai-comic-regenerate" data-nai-comic-for-message="${messageId}" title="Собрать новый запрос с текущими настройками и заменить только эту иллюстрацию">⟳ Перегенерировать с текущими настройками</button></span>\n<!-- NAI_COMIC_END -->`;
  m.mes=String(m.mes||'').replace(/<!-- NAI_COMIC_START -->[\s\S]*?<!-- NAI_COMIC_END -->/g,'').trim()+'\n'+html;
  if(typeof c.saveChat==='function')await c.saveChat();else if(typeof c.saveChatDebounced==='function')c.saveChatDebounced();
  if(typeof c.reloadCurrentChat==='function')await c.reloadCurrentChat();else if(typeof c.updateMessageBlock==='function')c.updateMessageBlock(messageId,m);
 }
 function lastCharacterMessageId(){const chat=ctx().chat||[];for(let i=chat.length-1;i>=0;i--)if(!chat[i].is_user&&!chat[i].is_system)return i;return null;}
-async function runJob(mode='preview', messageId=null){
+async function runJob(mode='preview', messageId=null, forceAttach=false){
  if(busy){setStatus('Уже выполняется задача.');return;} busy=true;setBusy(true);
  try{
   if(mode==='scene'||mode==='auto'){
@@ -236,12 +266,19 @@ async function runJob(mode='preview', messageId=null){
     if(settings.qwenProfile)applyScene(await qwenGenerate());
     else if(!sceneFromManual())throw new Error('Сначала заполни сцену вручную.');
   }
-  if(mode!=='scene')await buildPreview(mode==='preview');
+  if(mode==='preview' || (mode!=='scene' && (!prepared || prepared.snap.chat!==currentChatId())))await buildPreview(mode==='preview');
   if(mode==='image'||mode==='auto'){
-   const body=prepared.body;const response=await generateNovelAI(body);
+   const body=prepared.body;
+   if(forceAttach && Number(settings.seed)<0){
+     // A true regeneration must not reuse the preview's previous random seed.
+     body.parameters.seed=Math.floor(Math.random()*4294967296);
+     prepared.snap.providerBody=body;settings.lastRequest=prepared.snap;
+     if(el('provider-json'))el('provider-json').value=JSON.stringify(body,null,2);
+   }
+   const response=await generateNovelAI(body);
    const img=await uploadImage(response);
-   el('last-image').src=img;el('last-image-link').href=img;el('last-image-link').hidden=false;
-   if(settings.attach && messageId!==null)await attachImage(img,messageId);
+   el('last-image').src=img;el('last-image-link').href=img;el('last-image-link').hidden=false;settings.lastImageMessageId=messageId;persist();
+   if((settings.attach||forceAttach) && messageId!==null)await attachImage(img,messageId);
    log('INFO','Картинка сохранена: '+img);setStatus('Картинка готова.');
   }
  }catch(err){log('ERROR',err.message);setStatus('Ошибка: '+err.message); if(window.toastr)toastr.error(err.message,'NAI Comic Studio');}
@@ -297,7 +334,7 @@ function createPanel(){
   </details>`;
  };
  root.innerHTML=`
- <details open class="ncs-root"><summary><i class="fa-solid fa-book-open" aria-hidden="true"></i> NAI Comic Studio · v0.2.3</summary>
+ <details open class="ncs-root"><summary><i class="fa-solid fa-book-open" aria-hidden="true"></i> NAI Comic Studio · v0.2.5</summary>
  <div class="ncs-body">
   <div class="ncs-toolbar"><label class="ncs-switch"><input id="nai-comic-enabled" type="checkbox"> ✓ Включено</label><label class="ncs-switch"><input id="nai-comic-auto" type="checkbox"> <i class="fa-solid fa-wand-magic-sparkles"></i> Автоматически (Anlas)</label><label class="ncs-switch"><input id="nai-comic-attach" type="checkbox"> <i class="fa-solid fa-paperclip"></i> К сообщению</label></div>
   <p class="ncs-note">Каждый чат помнит свои подсказки и пресеты. Сначала предпросмотр — затем платная генерация.</p>
@@ -305,13 +342,15 @@ function createPanel(){
   <p id="nai-comic-status" class="ncs-note" role="status" aria-live="polite">Ожидаю настройки.</p>
   <details id="nai-comic-preview-inline" class="ncs-preview" hidden>
     <summary><i class="fa-solid fa-magnifying-glass"></i> Готовый промпт NovelAI · предпросмотр без Anlas</summary>
-    <p class="ncs-note">Это именно те секции, которые отправляются в NovelAI. Можно проверить здесь, не листая до «Отладки».</p>
-    <label>Общая сцена + стиль + теги комикса<textarea id="nai-comic-preview-base" rows="6" readonly></textarea></label>
-    <label>Персонаж чата: одежда, действия, внешность<textarea id="nai-comic-preview-character" rows="5" readonly></textarea></label>
-    <label>Активная персона: одежда, действия, внешность<textarea id="nai-comic-preview-persona" rows="5" readonly></textarea></label>
-    <label>Общий негатив<textarea id="nai-comic-preview-negative" rows="3" readonly></textarea></label>
-    <label>Негативы участников<textarea id="nai-comic-preview-char-negatives" rows="3" readonly></textarea></label>
-    <div class="ncs-buttons"><button type="button" id="nai-comic-copy-preview"><i class="fa-solid fa-copy"></i> Скопировать промпт</button><button type="button" id="nai-comic-copy-provider"><i class="fa-solid fa-file-code"></i> Скопировать JSON запроса</button></div>
+    <p class="ncs-note">Поля ниже можно редактировать. Изменения пойдут в следующую генерацию, но НЕ изменят библиотеку. Стиль отделяется пустой строкой от сцены, как в старом расширении.</p>
+    <label><i class="fa-solid fa-palette"></i> Теги стиля — отдельно от сцены<textarea id="nai-comic-preview-style" rows="4" spellcheck="false"></textarea></label>
+    <label><i class="fa-solid fa-film"></i> Сцена и теги комикса<textarea id="nai-comic-preview-base" rows="6" spellcheck="false"></textarea></label>
+    <label><i class="fa-solid fa-user"></i> Персонаж чата: одежда, действия, внешность<textarea id="nai-comic-preview-character" rows="5" spellcheck="false"></textarea></label>
+    <label><i class="fa-solid fa-user"></i> Активная персона: одежда, действия, внешность<textarea id="nai-comic-preview-persona" rows="5" spellcheck="false"></textarea></label>
+    <label><i class="fa-solid fa-ban"></i> Общий негатив<textarea id="nai-comic-preview-negative" rows="3" spellcheck="false"></textarea></label>
+    <div class="ncs-grid ncs-two"><label>Негатив персонажа<textarea id="nai-comic-preview-char-negative" rows="3" spellcheck="false"></textarea></label><label>Негатив персоны<textarea id="nai-comic-preview-persona-negative" rows="3" spellcheck="false"></textarea></label></div>
+    <details class="ncs-preview-debug"><summary>Точная сборка, отправляемая NovelAI (стиль + сцена + персонажи)</summary><textarea id="nai-comic-preview-merged" rows="6" readonly spellcheck="false"></textarea></details>
+    <div class="ncs-buttons"><button type="button" id="nai-comic-preview-reset"><i class="fa-solid fa-arrows-rotate"></i> Собрать заново из настроек</button><button type="button" id="nai-comic-copy-preview"><i class="fa-solid fa-copy"></i> Скопировать промпт</button><button type="button" id="nai-comic-copy-provider"><i class="fa-solid fa-file-code"></i> Скопировать JSON запроса</button></div>
   </details>
 
 
@@ -398,7 +437,7 @@ function createPanel(){
     </section>
    </div>
   </details>
-  <p><a id="nai-comic-last-image-link" href="#" target="_blank" rel="noopener" hidden>Открыть последнее изображение</a></p><img id="nai-comic-last-image" class="ncs-image" alt="Готовая иллюстрация" />
+  <p><a id="nai-comic-last-image-link" href="#" target="_blank" rel="noopener" hidden>Открыть последнее изображение</a></p><img id="nai-comic-last-image" class="ncs-image" alt="Готовая иллюстрация" /><div class="ncs-buttons"><button type="button" id="nai-comic-regenerate-last"><i class="fa-solid fa-rotate"></i> Перегенерировать эту картинку с новыми настройками · Anlas</button></div>
  </div></details>`;
  ui=root;(document.getElementById('extensions_settings')||document.getElementById('extensions_settings2')||document.body).append(root);
  setupBindings();return root;
@@ -438,6 +477,9 @@ function setupBindings(){fillFields();
   try { await navigator.clipboard.writeText(value);setStatus('Промпт скопирован.'); }
   catch(e){setStatus('Автокопирование недоступно в браузере — выдели содержимое поля и нажми Ctrl+C.');}
  }
+ for(const field of ['preview-style','preview-base','preview-character','preview-persona','preview-negative','preview-char-negative','preview-persona-negative'])bind(field,'input',syncPreviewDraft);
+ bind('preview-reset','click',()=>buildPreview(true).catch(e=>setStatus('Ошибка предпросмотра: '+e.message)));
+ bind('regenerate-last','click',()=>runJob('image',Number.isInteger(settings.lastImageMessageId)?settings.lastImageMessageId:lastCharacterMessageId(),true));
  bind('copy-preview','click',()=>copyText(prepared?.snap?.positive||settings.lastRequest?.positive||''));
  bind('copy-provider','click',()=>copyText(JSON.stringify(prepared?.body||settings.lastRequest?.providerBody||{},null,2)));
  bind('btn-scene','click',()=>runJob('scene'));bind('btn-preview','click',()=>runJob('preview'));
@@ -461,13 +503,40 @@ async function handleAuto(messageId){if(!ui||busy||!settings.enabled||!settings.
  if(!settings.apiKey || !settings.qwenProfile){log('WARN','Автогенерация пропущена: нет NovelAI ключа или Qwen профиля.');return;}
  await runJob('auto',messageId);
 }
+/** A button on every generated image, including images made by older studio releases. */
+function ensureRegenerateButtons(){
+ document.querySelectorAll('img.nai-comic-generated').forEach(img=>{
+  if(img.closest('.nai-comic-image-wrap')?.querySelector('.nai-comic-regenerate'))return;
+  if(img.nextElementSibling?.classList?.contains('nai-comic-regenerate'))return;
+  const msg=img.closest('.mes');const val=msg?.getAttribute('mesid') ?? msg?.getAttribute('data-mesid');
+  const index=Number(val);
+  if(!Number.isInteger(index)||index<0)return;
+  const btn=document.createElement('button');btn.type='button';btn.className='nai-comic-regenerate';
+  btn.dataset.naiComicForMessage=String(index);
+  btn.textContent='⟳ Перегенерировать с текущими настройками';
+  img.insertAdjacentElement('afterend',btn);
+ });
+}
+function installImageActions(){
+ document.addEventListener('click',event=>{
+  const btn=event.target?.closest?.('.nai-comic-regenerate');
+  if(!btn)return;
+  event.preventDefault();event.stopPropagation();
+  const messageId=Number(btn.dataset.naiComicForMessage);
+  if(!Number.isInteger(messageId)||messageId<0||!ctx().chat?.[messageId]){setStatus('Не удалось определить сообщение картинки.');return;}
+  runJob('image',messageId,true); // reuses editable draft if present; otherwise rebuilds from current settings
+ });
+ const node=document.querySelector('#chat');
+ if(node){const observer=new MutationObserver(()=>ensureRegenerateButtons());observer.observe(node,{childList:true,subtree:true});}
+ ensureRegenerateButtons();
+}
 function subscribe(){const c=ctx(),t=c.event_types||{};if(!c.eventSource){log('WARN','Нет eventSource; ручной режим работает.');return;}
  const sync=()=>{const sig=getCharIdentity().key+'::'+currentChatId();if(sig!==shownContext){shownContext=sig;currentScene=null;prepared=null;for(const field of ['final-prompt','provider-json','debug-style','debug-negative'])if(el(field))el(field).value='';refreshChatState();refreshIdentity();log('INFO','Чат изменён: '+sig);}};
  if(t.CHAT_CHANGED)c.eventSource.on(t.CHAT_CHANGED,sync);
- if(t.MESSAGE_RECEIVED)c.eventSource.on(t.MESSAGE_RECEIVED,async messageId=>{{const index=Number(messageId);if(Number.isInteger(index)&&index>=0)await handleAuto(index);}});
+ if(t.MESSAGE_RECEIVED)c.eventSource.on(t.MESSAGE_RECEIVED,async messageId=>{prepared=null;const index=Number(messageId);if(Number.isInteger(index)&&index>=0)await handleAuto(index);});
  if(t.MESSAGE_SENT)c.eventSource.on(t.MESSAGE_SENT,()=>{prepared=null;});
  // Active user persona may change without CHAT_CHANGED; poll only IDs, do not request data or trigger generation.
  let lastPersona='';setInterval(async()=>{if(!ui)return;const p=await getPersonaIdentity();if(p.key!==lastPersona){const changed=!!lastPersona;lastPersona=p.key;prepared=null;if(changed){delete settings.chatScene[currentChatId()];currentScene=null;for(const field of ['manual-scene',...['char','persona'].flatMap(k=>['clothing','action','emotion'].map(x=>`manual-${k}-${x}`))])if(el(field))el(field).value='';setStatus('Персона изменена: получи сцену заново перед генерацией.');persist();}await refreshIdentity();}},2200);
  sync();}
-async function init(){initialize();createPanel();await refreshIdentity();refreshChatState();subscribe();log('INFO','NAI Comic Studio loaded. Автогенерация выключена до явного включения.');}
+async function init(){initialize();createPanel();installImageActions();await refreshIdentity();refreshChatState();subscribe();log('INFO','NAI Comic Studio loaded. Автогенерация выключена до явного включения.');}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>init().catch(e=>console.error('[NAI Comic init]',e)));else init().catch(e=>console.error('[NAI Comic init]',e));

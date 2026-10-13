@@ -67,3 +67,13 @@
 #nai-comic-panel .ncs-preview[open] > summary { border-bottom:1px solid var(--ncs-edge); margin-bottom:9px; }
 #nai-comic-panel .ncs-preview textarea { font-size:.88em; line-height:1.55; max-height:260px; overflow-y:auto; background:color-mix(in srgb,var(--ncs-tint) 55%,transparent); }
 #nai-comic-panel .ncs-preview > label { font-weight:650; margin-top:12px; }
+
+/* v0.2.5: editable source blocks and regenerate actions. */
+#nai-comic-panel .ncs-preview textarea:not([readonly]) {border-left:3px solid #a792d8; background:var(--ncs-tint);}
+#nai-comic-panel .ncs-preview-debug {margin:8px 0; padding:5px 8px;}
+#nai-comic-panel .ncs-preview-debug summary {font-weight:600;}
+#nai-comic-panel .ncs-image+.ncs-buttons {justify-content:center;}
+.nai-comic-image-wrap {display:block; width:fit-content; max-width:100%;}
+.nai-comic-image-wrap img {max-width:100%; height:auto; display:block;}
+.nai-comic-regenerate {display:block; max-width:100%; margin:7px auto 13px; padding:8px 12px; border-radius:8px; border:1px solid var(--SmartThemeBorderColor); background:var(--SmartThemeBlurTintColor); color:var(--SmartThemeBodyColor); cursor:pointer; font:inherit;}
+.nai-comic-regenerate:hover {filter:brightness(1.15);}

@@ -42,6 +42,13 @@ export function normalizeNovelAIStyle(style){
  const offset=last.index+last[0].length;
  return text.slice(0,offset)+'::'+text.slice(offset);
 }
+/** Matches the old sillyimages parser: treat style as its own text block, then join it
+ * to the scene once when building a single NovelAI API base_caption. The API has NO style key. */
+export function composeStyleScene(style, scene){
+ const rawStyle=String(style??'').trim(); // do not rewrite user's Danbooru weights or artist tags
+ const rawScene=String(scene??'').trim();
+ return rawStyle && rawScene ? `${rawStyle}\n\n${rawScene}` : rawStyle || rawScene;
+}
 export function uniqueTexts(values){ const seen = new Set(); return (values||[]).map(normalize).filter(s => s && (!seen.has(s) && seen.add(s))); }
 export function libDescription(entry){ if(!entry)return '';const items=[];if(entry.mainEnabled!==false)items.push(entry.main||'');for(const ex of entry.extra||[])if(ex.enabled!==false)items.push(ex.text||'');return uniqueTexts(items).join(' '); }
 export function legacyDescription(entry){if(!entry)return '';return uniqueTexts([entry.primary?.enabled===false?'':entry.primary?.description||'',...(entry.appearanceItems||[]).filter(x=>x.enabled!==false).map(x=>x.description||'')]).join(' ');}
@@ -118,9 +125,13 @@ export function makePrompt({scene,character,persona,characterLabel,personaLabel,
    .replace(/^[,;:\s]+|[,;:\s]+$/g,'')
    .replace(/[,;]\s*[,;]+/g,','));
  const layout=`comic, comic page, ${numberPanels} panels, multiple panels, one large main panel showing the interaction of both participants, ${numberPanels-1} smaller inset ${numberPanels-1===1?'panel':'panels'}, panel borders`;
- // Actual action and panel descriptions BEFORE style; no scene data lost to repeated tags.
- const base=uniqueTexts([counts,layout,sceneText,normalizeNovelAIStyle(style)]).join(', ');
- const positive={base,chars:captions};return {positive,negative:normalize(negative),characterNegatives:characterNeg,display:[base,...captions].join(' | '),npcNames:selected};
+ // Reproduce the ORIGINAL old image extension: STYLE is an independent unmodified text
+ // block inserted before the scene with a BLANK LINE, in ONE base_caption and ONE API request.
+ const sceneBase=uniqueTexts([counts,layout,sceneText]).join(', ');
+ const cleanStyle=String(style??'').trim();
+ const base=composeStyleScene(cleanStyle,sceneBase);
+ const positive={style:cleanStyle,scene:sceneBase,base,chars:captions};
+ return {positive,negative:normalize(negative),characterNegatives:characterNeg,display:[base,...captions].join(' | '),npcNames:selected};
 }
 export function novelaiRequest(s,assembled){
  const medium=s.model==='nai-diffusion-5-full-medium';const globalNeg=assembled.negative;

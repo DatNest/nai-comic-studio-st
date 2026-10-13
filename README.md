@@ -1,21 +1,15 @@
-# NAI Comic Studio v0.2.3 — Shino scene directing and official NovelAI V5 tags
+# NAI Comic Studio v0.2.5 — Style separation + editable NovelAI preview + per-image regeneration
 
-A minimal update over v0.2.2. Settings remain under the same SillyTavern extension key `nai_comic_studio`.
+Update all five root files of your existing GitHub repo and commit. In SillyTavern update extension and hard reload (Ctrl+F5). Saved character libraries, style and negative presets, Qwen instructions and settings use the original `nai_comic_studio` settings key and are not reset.
 
-## What changed
-- Restores the original detailed Shino `naicom (18)` visual directing language, adapted to the current JSON scene/character/persona fields. Qwen only extracts scene, clothing, actions and emotions; the existing character library remains separate.
-- Automatically migrates prior built-in default Qwen scene prompt to the restored Shino edition. Any personalized main Qwen prompt not matching the old default is kept unchanged. You can always reset the main prompt using the existing UI.
-- Official NovelAI V5 model still receives `input` and `v4_prompt.caption.base_caption` for the base, with separate unnumbered character `char_captions` and `v4_negative_prompt` for undesired content. Literal `|` in the debug preview is presentation ONLY, not transmitted as the underlying split format.
-- Count tags (`1boy`, `1girl`) and actual recognized composition tags (`comic`, `comic page`, `3 panels`, `multiple panels`) precede the scene. Style is added once, **after** the main scene composition, but still in the base caption. This follows NovelAI guidance that early prompt instructions matter most.
-- Repairs only an unpaired numeric tag weight when generating: `0.9::backlighting,` becomes `0.9::backlighting::,`. The saved style text is not modified.
-- Maintains character descriptions / negatives from the existing libraries, chat-specific settings, debug preview and connection profiles.
+## Changes
+- Restores old `sillyimages` style injection layout. Style tags are passed through UNMODIFIED and inserted as a separate leading block, followed by exactly two newlines, then the scene/comic tags. One official V5 base caption receives both; NovelAI's API does not provide a separate `style` parameter. Both `input` and `v4_prompt.caption.base_caption` receive IDENTICAL combined text.
+- Preview now exposes style, scene, chat character, persona, global negative and two individual negatives as EDITABLE fields. Changing them updates exactly the outgoing request; it doesn't overwrite saved libraries. The collapsible exact assembled prompt and JSON debug show what NovelAI receives. Press Generate to use those edits. "Собрать заново из настроек" discards these temporary edits.
+- Under attached images (including previous images with `nai-comic-generated` class) is a button to re-generate the SAME message image from the current request. No new roleplay text. A second regenerate button appears below the latest generated image in the extension panel.
+- Every fresh generation rebuilds the request if inputs/styles/character descriptions changed. It preserves editable preview changes as long as no underlying settings changed. Does not call Qwen again unless user presses "1. Qwen: сцена".
+- Existing character and NPC text descriptions still go into separate `char_captions`, negatives into `v4_negative_prompt`. Style presets and negative presets are not altered.
 
-## Installation
-Replace `index.js`, `core.mjs`, `style.css`, `manifest.json`, and `README.md` in the root of the **same GitHub repo** (no new repository), commit, run SillyTavern Extension Update and Ctrl+F5. Confirm the panel heading shows `NAI Comic Studio · v0.2.3`.
+## IMPORTANT
+Before spending Anlas: press **2. Предпросмотр**, edit any visible text fields, inspect "Точная сборка", then **3. Создать**. For already attached images, change scene/characters/styles then click the button below that image. No RP regeneration.
 
-## Free test before Anlas
-1. Select your chat and Qwen profile; open **Сцена от Qwen**. Use **Свой главный промпт Qwen -> Вернуть базовую инструкцию** if you had customized it and want the exact Shino adapted version.
-2. Press **1. Qwen: сцена** to regenerate the scene fields.
-3. Press **2. Предпросмотр · бесплатно**. Check the base has `1boy, 1girl, comic, comic page, ...` and actual main-frame scene and style. Check Yukio/Ness have separate appearance captions with clothing/actions. Check negative fields and provider JSON. Do not pay unless correct.
-
-This update makes tag packing correct and easier to inspect; neither prompting nor NovelAI API guarantees perfect anatomy, full character consistency or successful multi-panel interpretation.
+Beta: locally validated for syntax, request structure and prompt composition; not tested on user's hosted SillyTavern/NovelAI account. Image layout still depends on the model.

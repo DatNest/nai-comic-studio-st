@@ -1,4 +1,4 @@
-import { BASE_DEFAULTS, QWEN_DEFAULT, EXTRACT_INSTRUCTIONS, newChatProfile, effectivePreset, detectNpcs, importOldLibrary, libDescription, makePrompt, novelaiRequest, parseSceneLLM, stripRpText, trackerClothing } from './core.mjs';
+import { BASE_DEFAULTS, QWEN_DEFAULT, SCENE_FORMAT_CONTRACT, EXTRACT_INSTRUCTIONS, newChatProfile, effectivePreset, detectNpcs, importOldLibrary, libDescription, makePrompt, novelaiRequest, parseSceneLLM, stripRpText, trackerClothing } from './core.mjs';
 import { oai_settings, proxies, chat_completion_sources } from '../../../openai.js';
 
 const MODULE = 'nai_comic_studio';
@@ -140,7 +140,7 @@ function buildSceneContext(){
 }
 function systemPrompt(){
  const p=chatConfig();
- return `${p.qwenPrompt?.trim()||QWEN_DEFAULT}\n\nCUSTOM PER-ROLE EXTRACTION INSTRUCTIONS (follow these, without restating appearance):\n`+Object.entries(EXTRACT_INSTRUCTIONS).map(([k,def])=>`${k}: ${p.partPrompts?.[k]||def}`).join('\n')+'\nAlways output the JSON schema specified above.';
+ return `${p.qwenPrompt?.trim()||QWEN_DEFAULT}\n\nCUSTOM PER-ROLE EXTRACTION INSTRUCTIONS (follow these, without restating appearance):\n`+Object.entries(EXTRACT_INSTRUCTIONS).map(([k,def])=>`${k}: ${p.partPrompts?.[k]||def}`).join('\n')+'\n\n'+SCENE_FORMAT_CONTRACT;
 }
 function getProfileData(){const profile=profileList().find(p=>p.name===settings.qwenProfile);if(!profile)throw new Error('Выбери Connection Profile Qwen или заполни сцену вручную.');if(profile.mode!=='cc')throw new Error('Нужен профиль Chat Completions.');return profile;}
 function responseText(data){if(typeof data==='string')return data;
@@ -172,7 +172,7 @@ function presetText(kind){
  const profile=chatConfig(),list=kind==='styles'?settings.styles:settings.negatives;
  return effectivePreset(list,kind==='styles'?profile.styleActive:profile.negativeActive,kind==='styles'?'Стиль':'Негатив');
 }
-async function buildPreview(){
+async function buildPreview(showInline=false){
  const ident=await currentIdentity(),matched=identityAliases(ident);const scene=sceneFromManual()||currentScene;
  if(!scene)throw new Error('Сначала подготовь сцену — с Qwen или вручную.');
  const profile=chatConfig(),style=presetText('styles'),negative=presetText('negatives');
@@ -183,13 +183,23 @@ async function buildPreview(){
  const snap={at:new Date().toISOString(),chat:currentChatId(),identities:ident,scene,style,negative,characterNegatives:assembled.characterNegatives,
   npcNames:assembled.npcNames,positive:assembled.display,providerBody:body};
  prepared={snap,body};settings.lastRequest=snap;persist();
+ if(el('preview-inline')){
+  const panel=el('preview-inline');panel.hidden=false;panel.open=true;
+  el('preview-base').value=assembled.positive.base;
+  el('preview-character').value=assembled.positive.chars[0]||'';
+  el('preview-persona').value=assembled.positive.chars[1]||'';
+  el('preview-negative').value=negative;
+  el('preview-char-negatives').value=assembled.characterNegatives.map((t,i)=>`${i+1}: ${t||'(none)'}`).join('\n');
+  if(showInline && typeof panel.scrollIntoView==='function')setTimeout(()=>panel.scrollIntoView({behavior:'smooth',block:'nearest'}),0);
+ }
  el('final-prompt').value=assembled.display;
  el('provider-json').value=JSON.stringify(body,null,2);
  if(el('debug-style'))el('debug-style').value=style;
  if(el('debug-tracker'))el('debug-tracker').value=trackerClothing(ctx().chat)||'Нет сохранённого состояния WTracker в истории чата.';
  if(el('debug-negative'))el('debug-negative').value=negative+'\n--- CHARACTER NEGATIVES ---\n'+assembled.characterNegatives.map((n,i)=>`${i+1}: ${n||'(none)'}`).join('\n');
  const lengths=body.parameters.v4_prompt.caption.char_captions.map(x=>x.char_caption.length);
- setStatus(`Предпросмотр: стиль ${style.length} символов; глобальный негатив ${negative.length}; ${lengths.length} секции персонажей; NPC: ${assembled.npcNames.join(', ')||'нет'}. Anlas не потрачены.`);
+ const badWeight=(style.match(/::/g)||[]).length%2!==0;
+ setStatus(`Предпросмотр готов ниже кнопок: стиль ${style.length} символов, негатив ${negative.length}, ${lengths.length} секции персонажей. Anlas не потрачены.`+(badWeight?' ⚠ Проверь стиль: обнаружена незакрытая пара :: в NovelAI-тегах.':''));
  log('INFO',`Preview: style=${style.length} chars, negative=${negative.length} chars, character sections=${lengths.length}, NPC=${assembled.npcNames.join(',')||'none'}`);
  return snap;
 }
@@ -223,7 +233,7 @@ async function runJob(mode='preview', messageId=null){
     if(settings.qwenProfile)applyScene(await qwenGenerate());
     else if(!sceneFromManual())throw new Error('Сначала заполни сцену вручную.');
   }
-  if(mode!=='scene')await buildPreview();
+  if(mode!=='scene')await buildPreview(mode==='preview');
   if(mode==='image'||mode==='auto'){
    const body=prepared.body;const response=await generateNovelAI(body);
    const img=await uploadImage(response);
@@ -273,53 +283,68 @@ function createPanel(){
  const root=document.createElement('section');root.id='nai-comic-panel';
  const roleControls=kind=>{
   const title=kind==='char'?'Активный персонаж чата':'Активная персона';
-  return `<details class="ncs-compact"><summary><i class="fa-solid fa-user-pen" aria-hidden="true"></i> ${title}: одежда, действие, эмоция</summary>
-   ${['clothing','action','emotion'].map(part=>`<label>${{clothing:'👕 Одежда и аксессуары',action:'🤝 Действия и контакт',emotion:'💗 Эмоции и мимика'}[part]}<textarea id="nai-comic-manual-${kind}-${part}" rows="2"></textarea></label>`).join('')}
+  return `<details class="ncs-compact ncs-subgroup"><summary><i class="fa-solid fa-user-pen" aria-hidden="true"></i> ${title}: одежда, действие, эмоция</summary>
+   <div class="ncs-substack">${['clothing','action','emotion'].map(part=>`<section class="ncs-subpane"><label>${{clothing:'👕 Одежда и аксессуары',action:'🤝 Действия и контакт',emotion:'💗 Эмоции и мимика'}[part]}<textarea id="nai-comic-manual-${kind}-${part}" rows="2"></textarea></label></section>`).join('')}</div>
   </details>`;
  };
  const rolePrompts=kind=>{
   const title=kind==='character'?'Персонаж чата':'Активная персона';
-  return `<details class="ncs-compact"><summary>📝 ${title} · три инструкции Qwen</summary>
-  ${['clothing','action','emotion'].map(part=>`<label>${{clothing:'👕 Как извлекать одежду',action:'🤝 Как извлекать действия',emotion:'💗 Как извлекать эмоции'}[part]}<textarea id="nai-comic-prompt-${kind}-${part}" rows="3"></textarea></label>`).join('')}
+  return `<details class="ncs-compact ncs-subgroup"><summary><i class="fa-solid fa-list-check" aria-hidden="true"></i> ${title} · три инструкции Qwen</summary>
+  <div class="ncs-substack">${['clothing','action','emotion'].map(part=>`<section class="ncs-subpane"><label>${{clothing:'👕 Как извлекать одежду',action:'🤝 Как извлекать действия',emotion:'💗 Как извлекать эмоции'}[part]}<textarea id="nai-comic-prompt-${kind}-${part}" rows="3"></textarea></label></section>`).join('')}</div>
   </details>`;
  };
  root.innerHTML=`
- <details open class="ncs-root"><summary><i class="fa-solid fa-book-open" aria-hidden="true"></i> NAI Comic Studio · v0.2</summary>
+ <details open class="ncs-root"><summary><i class="fa-solid fa-book-open" aria-hidden="true"></i> NAI Comic Studio · v0.2.2</summary>
  <div class="ncs-body">
-  <div class="ncs-toolbar"><label class="ncs-switch"><input id="nai-comic-enabled" type="checkbox"> ✓ Включено</label><label class="ncs-switch"><input id="nai-comic-auto" type="checkbox"> <i class="fa-solid fa-wand-magic-sparkles"></i> Автоматически (Anlas)</label><label class="ncs-switch"><input id="nai-comic-attach" type="checkbox"> <i class="fa-solid fa-paperclip"></i> К сообщению</label><label class="ncs-switch"><input id="nai-comic-readable" type="checkbox"> <i class="fa-solid fa-book-reader"></i> Удобное чтение</label></div>
+  <div class="ncs-toolbar"><label class="ncs-switch"><input id="nai-comic-enabled" type="checkbox"> ✓ Включено</label><label class="ncs-switch"><input id="nai-comic-auto" type="checkbox"> <i class="fa-solid fa-wand-magic-sparkles"></i> Автоматически (Anlas)</label><label class="ncs-switch"><input id="nai-comic-attach" type="checkbox"> <i class="fa-solid fa-paperclip"></i> К сообщению</label></div>
   <p class="ncs-note">Каждый чат помнит свои подсказки и пресеты. Сначала предпросмотр — затем платная генерация.</p>
   <div class="ncs-buttons"><button id="nai-comic-btn-scene" type="button"><i class="fa-solid fa-comment-dots"></i> 1. Qwen: сцена</button><button id="nai-comic-btn-preview" type="button"><i class="fa-solid fa-eye"></i> 2. Предпросмотр · бесплатно</button><button id="nai-comic-btn-image" type="button" class="ncs-primary"><i class="fa-solid fa-image"></i> 3. Создать · Anlas</button></div>
   <p id="nai-comic-status" class="ncs-note" role="status" aria-live="polite">Ожидаю настройки.</p>
-
-  <details open><summary><i class="fa-solid fa-sliders"></i> Пресеты стиля и негативов <span class="ncs-tip">для этого чата</span></summary>
-   <div class="ncs-grid ncs-two"><section><label><i class="fa-solid fa-palette"></i> Стиль <select id="nai-comic-style"></select></label><label>Теги стиля<textarea rows="4" id="nai-comic-style-text"></textarea></label><div id="nai-comic-style-state" class="ncs-note"></div><button id="nai-comic-style-add" type="button">＋ Создать стиль</button><button id="nai-comic-style-delete" type="button">Удалить</button></section>
-   <section><label><i class="fa-solid fa-ban"></i> Общий негатив <select id="nai-comic-negative"></select></label><label>Негативные теги<textarea rows="4" id="nai-comic-negative-text"></textarea></label><div id="nai-comic-negative-state" class="ncs-note"></div><button id="nai-comic-negative-add" type="button">＋ Создать негатив</button><button id="nai-comic-negative-delete" type="button">Удалить</button></section></div>
+  <details id="nai-comic-preview-inline" class="ncs-preview" hidden>
+    <summary><i class="fa-solid fa-magnifying-glass"></i> Готовый промпт NovelAI · предпросмотр без Anlas</summary>
+    <p class="ncs-note">Это именно те секции, которые отправляются в NovelAI. Можно проверить здесь, не листая до «Отладки».</p>
+    <label>Общая сцена + стиль + теги комикса<textarea id="nai-comic-preview-base" rows="6" readonly></textarea></label>
+    <label>Персонаж чата: одежда, действия, внешность<textarea id="nai-comic-preview-character" rows="5" readonly></textarea></label>
+    <label>Активная персона: одежда, действия, внешность<textarea id="nai-comic-preview-persona" rows="5" readonly></textarea></label>
+    <label>Общий негатив<textarea id="nai-comic-preview-negative" rows="3" readonly></textarea></label>
+    <label>Негативы участников<textarea id="nai-comic-preview-char-negatives" rows="3" readonly></textarea></label>
+    <div class="ncs-buttons"><button type="button" id="nai-comic-copy-preview"><i class="fa-solid fa-copy"></i> Скопировать промпт</button><button type="button" id="nai-comic-copy-provider"><i class="fa-solid fa-file-code"></i> Скопировать JSON запроса</button></div>
   </details>
 
-  <details open><summary><i class="fa-solid fa-people-arrows-left-right"></i> Этот чат · эмоции, действия, одежда и негативы</summary>
+
+  <details open class="ncs-major"><summary><i class="fa-solid fa-sliders"></i> Пресеты стиля и негативов <span class="ncs-tip">для этого чата</span></summary>
+   <div class="ncs-grid ncs-two ncs-subgrid"><section class="ncs-subpane"><label><i class="fa-solid fa-palette"></i> Стиль <select id="nai-comic-style"></select></label><label>Теги стиля<textarea rows="4" id="nai-comic-style-text"></textarea></label><div id="nai-comic-style-state" class="ncs-note"></div><button id="nai-comic-style-add" type="button">＋ Создать стиль</button><button id="nai-comic-style-delete" type="button">Удалить</button></section>
+   <section class="ncs-subpane"><label><i class="fa-solid fa-ban"></i> Общий негатив <select id="nai-comic-negative"></select></label><label>Негативные теги<textarea rows="4" id="nai-comic-negative-text"></textarea></label><div id="nai-comic-negative-state" class="ncs-note"></div><button id="nai-comic-negative-add" type="button">＋ Создать негатив</button><button id="nai-comic-negative-delete" type="button">Удалить</button></section></div>
+  </details>
+
+  <details open class="ncs-major"><summary><i class="fa-solid fa-people-arrows-left-right"></i> Этот чат · эмоции, действия, одежда и негативы</summary>
    <p class="ncs-note">Настраивается один раз на чат: <code id="nai-comic-chat-id"></code>. Не влияет на другие беседы.</p>
-   <label><i class="fa-solid fa-thumbtack"></i> Заметки для текущего чата (не внешность)<textarea id="nai-comic-chat-notes" rows="2" placeholder="Например: действие дома; одежда из трекера приоритетна"></textarea></label>
-   <div class="ncs-grid ncs-two"><label><i class="fa-solid fa-ban"></i> Негатив персонажа в этом чате<textarea rows="3" id="nai-comic-chat-char-negative" placeholder="Только для персонажа"></textarea></label><label><i class="fa-solid fa-ban"></i> Негатив персоны в этом чате<textarea rows="3" id="nai-comic-chat-persona-negative" placeholder="Только для персоны"></textarea></label></div>
-   <details class="ncs-compact"><summary><i class="fa-solid fa-brain"></i> Свой главный промпт Qwen</summary><label>Полная инструкция для сцены, которую можно изменять<textarea rows="8" id="nai-comic-qwen-instruction"></textarea></label><button id="nai-comic-reset-qwen" type="button"><i class="fa-solid fa-arrow-rotate-left"></i> Вернуть базовую инструкцию</button></details>
+   <div class="ncs-substack">
+    <section class="ncs-subpane"><div class="ncs-subhead"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i> Контекст текущего чата</div><label>Заметки (не внешность)<textarea id="nai-comic-chat-notes" rows="2" placeholder="Например: действие дома; одежда из трекера приоритетна"></textarea></label></section>
+    <section class="ncs-subpane"><div class="ncs-subhead"><i class="fa-solid fa-ban" aria-hidden="true"></i> Негативы участников</div><div class="ncs-grid ncs-two"><label>Негатив персонажа<textarea rows="3" id="nai-comic-chat-char-negative" placeholder="Только для персонажа"></textarea></label><label>Негатив персоны<textarea rows="3" id="nai-comic-chat-persona-negative" placeholder="Только для персоны"></textarea></label></div></section>
+   </div>
+   <details class="ncs-compact ncs-subgroup"><summary><i class="fa-solid fa-brain"></i> Свой главный промпт Qwen</summary><label>Полная инструкция для сцены, которую можно изменять<textarea rows="8" id="nai-comic-qwen-instruction"></textarea></label><button id="nai-comic-reset-qwen" type="button"><i class="fa-solid fa-arrow-rotate-left"></i> Вернуть базовую инструкцию</button></details>
    ${rolePrompts('character')}${rolePrompts('persona')}
   </details>
 
-  <details open><summary><i class="fa-solid fa-clapperboard"></i> Сцена от Qwen · можно исправить вручную</summary>
-   <label>Профиль Qwen <select id="nai-comic-qwen-profile"></select></label><button id="nai-comic-refresh-profiles" type="button"><i class="fa-solid fa-rotate"></i> Обновить список</button>
-   <p class="ncs-note">Здесь только изменяемое состояние персонажей; внешность добавляет библиотека без повторов.</p>
-   <label>Локация, свет и композиция панелей<textarea id="nai-comic-manual-scene" rows="4" placeholder="Получить сцену из Qwen или написать самостоятельно"></textarea></label>
+  <details open class="ncs-major"><summary><i class="fa-solid fa-clapperboard"></i> Сцена от Qwen · можно исправить вручную</summary>
+   <section class="ncs-subpane"><div class="ncs-subhead"><i class="fa-solid fa-film" aria-hidden="true"></i> Общая сцена</div>
+    <label>Профиль Qwen <select id="nai-comic-qwen-profile"></select></label><button id="nai-comic-refresh-profiles" type="button"><i class="fa-solid fa-rotate"></i> Обновить список</button>
+    <p class="ncs-note">Здесь только изменяемое состояние персонажей; внешность добавляет библиотека без повторов.</p>
+    <label>Локация, свет и композиция панелей<textarea id="nai-comic-manual-scene" rows="4" placeholder="Получить сцену из Qwen или написать самостоятельно"></textarea></label>
+   </section>
    ${roleControls('char')}${roleControls('persona')}
    <div id="nai-comic-npc-scene-status" class="ncs-note">NPC пока не найдены.</div>
   </details>
 
-  <details><summary><i class="fa-solid fa-address-book"></i> Библиотека персонажей и персон <span class="ncs-tip">переключаются с чатом</span></summary>
-   <details class="ncs-compact"><summary><i class="fa-solid fa-user"></i> Активный персонаж: <span id="nai-comic-current-char"></span> · <span id="nai-comic-char-status"></span></summary>
+  <details class="ncs-major"><summary><i class="fa-solid fa-address-book"></i> Библиотека персонажей и персон <span class="ncs-tip">переключаются с чатом</span></summary>
+   <details class="ncs-compact ncs-subgroup"><summary><i class="fa-solid fa-user"></i> Активный персонаж: <span id="nai-comic-current-char"></span> · <span id="nai-comic-char-status"></span></summary>
     <label>Тег для NovelAI<select id="nai-comic-char-tag"><option value="boy">boy</option><option value="girl">girl</option><option value="other">other</option></select></label>
     <label>Главный референс<textarea id="nai-comic-char-main" rows="6"></textarea></label><label class="ncs-switch"><input id="nai-comic-char-enabled" type="checkbox" checked> Использовать главное описание</label>
     <div id="nai-comic-char-extras"></div><button id="nai-comic-char-extra-add" type="button">＋ Деталь внешности</button>
     <label>Постоянный персональный негатив<textarea id="nai-comic-char-library-negative" rows="2"></textarea></label><button id="nai-comic-char-save" type="button">💾 Сохранить анкету</button>
    </details>
-   <details class="ncs-compact"><summary><i class="fa-solid fa-user-astronaut"></i> Активная персона: <span id="nai-comic-current-persona"></span> · <span id="nai-comic-persona-status"></span></summary>
+   <details class="ncs-compact ncs-subgroup"><summary><i class="fa-solid fa-user-astronaut"></i> Активная персона: <span id="nai-comic-current-persona"></span> · <span id="nai-comic-persona-status"></span></summary>
     <label>Тег для NovelAI<select id="nai-comic-persona-tag"><option value="girl">girl</option><option value="boy">boy</option><option value="other">other</option></select></label>
     <label>Главный референс<textarea id="nai-comic-persona-main" rows="6"></textarea></label><label class="ncs-switch"><input id="nai-comic-persona-enabled" type="checkbox" checked> Использовать главное описание</label>
     <div id="nai-comic-persona-extras"></div><button id="nai-comic-persona-extra-add" type="button">＋ Деталь внешности</button>
@@ -329,7 +354,7 @@ function createPanel(){
    <button id="nai-comic-import-old" type="button"><i class="fa-solid fa-file-import"></i> Импорт из старой библиотеки</button>
   </details>
 
-  <details><summary><i class="fa-solid fa-masks-theater"></i> Библиотека NPC · автоматическое появление по имени</summary>
+  <details class="ncs-major"><summary><i class="fa-solid fa-masks-theater"></i> Библиотека NPC · автоматическое появление по имени</summary>
    <p class="ncs-note">NPC добавляется в промпт только при упоминании триггера в недавней ролке <em>и</em> если Qwen подтвердил его присутствие в сцене. У каждого — отдельная внешность и негатив.</p>
    <label>Выбрать NPC<select id="nai-comic-npc-select"></select></label><div class="ncs-buttons"><button type="button" id="nai-comic-npc-add">＋ Новый NPC</button><button type="button" id="nai-comic-npc-delete">✕ Удалить</button></div>
    <div class="ncs-grid ncs-two"><label>Имя NPC<input type="text" id="nai-comic-npc-name" placeholder="Например: Денджи"></label><label>Триггеры (через запятую)<input type="text" id="nai-comic-npc-triggers" placeholder="Денджи, Denji"></label></div>
@@ -337,7 +362,7 @@ function createPanel(){
    <label>Описание внешности NPC<textarea id="nai-comic-npc-main" rows="4"></textarea></label><label>Негатив только для NPC<textarea id="nai-comic-npc-negative" rows="3"></textarea></label><button type="button" id="nai-comic-npc-save">💾 Сохранить NPC</button><div id="nai-comic-npc-library-status" class="ncs-note"></div>
   </details>
 
-  <details><summary><i class="fa-solid fa-gear"></i> NovelAI V5 · ключ и параметры</summary>
+  <details class="ncs-major"><summary><i class="fa-solid fa-gear"></i> NovelAI V5 · ключ и параметры</summary>
    <div class="ncs-grid ncs-two"><label>Ключ NovelAI<input id="nai-comic-api-key" type="password" autocomplete="off" placeholder="Не размещать на GitHub"></label>
     <label>API URL<input id="nai-comic-endpoint" type="text"></label>
     <label>Модель<select id="nai-comic-model"><option value="nai-diffusion-5-full">V5 Full</option><option value="nai-diffusion-5-full-medium">V5 Full Medium</option><option value="nai-diffusion-5-curated">V5 Curated</option><option value="nai-diffusion-4-5-full">V4.5 Full</option></select></label>
@@ -350,17 +375,25 @@ function createPanel(){
    </div>
   </details>
 
-  <details><summary><i class="fa-solid fa-bug"></i> Отладка · всё, что отправляется NovelAI</summary>
-   <label>Стиль в общем позитивном промпте<textarea id="nai-comic-debug-style" rows="3" readonly></textarea></label>
-   <label>Текущий трекер одежды<textarea id="nai-comic-debug-tracker" rows="3" readonly></textarea></label>
-   <label>Сырой ответ Qwen<textarea id="nai-comic-debug-qwen" rows="4" readonly></textarea></label>
-   <label>Негативы: общий и отдельные персонажи<textarea id="nai-comic-debug-negative" rows="4" readonly></textarea></label>
-   <label>Положительный промпт (секции персонажей)<textarea id="nai-comic-final-prompt" rows="8" readonly></textarea></label>
-   <label>Полный JSON NovelAI<textarea id="nai-comic-provider-json" rows="9" readonly></textarea></label>
-   <label>Журнал<textarea id="nai-comic-logs" rows="6" readonly></textarea></label>
-   <button type="button" id="nai-comic-export-debug"><i class="fa-solid fa-file-arrow-down"></i> Экспорт отладки</button>
-   <button type="button" id="nai-comic-export-settings"><i class="fa-solid fa-floppy-disk"></i> Резервная копия библиотек</button>
-   <button type="button" id="nai-comic-import-settings"><i class="fa-solid fa-file-import"></i> Импорт настроек</button><input id="nai-comic-import-file" type="file" accept="application/json,.json" hidden>
+  <details class="ncs-major"><summary><i class="fa-solid fa-bug"></i> Отладка · всё, что отправляется NovelAI</summary>
+   <div class="ncs-substack">
+    <section class="ncs-subpane"><div class="ncs-subhead"><i class="fa-solid fa-list" aria-hidden="true"></i> Входные данные</div>
+     <label>Стиль в общем позитивном промпте<textarea id="nai-comic-debug-style" rows="3" readonly></textarea></label>
+     <label>Текущий трекер одежды<textarea id="nai-comic-debug-tracker" rows="3" readonly></textarea></label>
+     <label>Сырой ответ Qwen<textarea id="nai-comic-debug-qwen" rows="4" readonly></textarea></label>
+    </section>
+    <section class="ncs-subpane"><div class="ncs-subhead"><i class="fa-solid fa-file-code" aria-hidden="true"></i> Собранный запрос</div>
+     <label>Негативы: общий и отдельные персонажи<textarea id="nai-comic-debug-negative" rows="4" readonly></textarea></label>
+     <label>Положительный промпт (секции персонажей)<textarea id="nai-comic-final-prompt" rows="8" readonly></textarea></label>
+     <label>Полный JSON NovelAI<textarea id="nai-comic-provider-json" rows="9" readonly></textarea></label>
+    </section>
+    <section class="ncs-subpane"><div class="ncs-subhead"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Журнал и резервные копии</div>
+     <label>Журнал<textarea id="nai-comic-logs" rows="6" readonly></textarea></label>
+     <div class="ncs-buttons"><button type="button" id="nai-comic-export-debug"><i class="fa-solid fa-file-arrow-down"></i> Экспорт отладки</button>
+     <button type="button" id="nai-comic-export-settings"><i class="fa-solid fa-floppy-disk"></i> Резервная копия библиотек</button>
+     <button type="button" id="nai-comic-import-settings"><i class="fa-solid fa-file-import"></i> Импорт настроек</button></div><input id="nai-comic-import-file" type="file" accept="application/json,.json" hidden>
+    </section>
+   </div>
   </details>
   <p><a id="nai-comic-last-image-link" href="#" target="_blank" rel="noopener" hidden>Открыть последнее изображение</a></p><img id="nai-comic-last-image" class="ncs-image" alt="Готовая иллюстрация" />
  </div></details>`;
@@ -371,13 +404,11 @@ function fillFields(){
  for(const key of ['enabled','auto','attach','apiKey','endpoint','model','aspect','size','sampler','steps','cfg','cfgRescale','seed']){
   const target=el(key==='apiKey'?'api-key':key);if(!target)continue;if(target.type==='checkbox')target.checked=!!settings[key];else target.value=settings[key]??'';
  }
- if(el('readable')){el('readable').checked=settings.readable!==false;ui?.classList.toggle('ncs-readable',settings.readable!==false);}
  fillProfiles();selectStyle('styles');selectStyle('negatives');npcSelect();updateDebug();
 }
 function download(filename,obj){const body=JSON.stringify(obj,null,2);const blob=new Blob([body],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),500);}
 function setupBindings(){fillFields();
  for(const key of ['enabled','auto','attach','apiKey','endpoint','model','aspect','size','sampler','steps','cfg','cfgRescale','seed'])saveField(key==='apiKey'?'api-key':key,key,['enabled','auto','attach'].includes(key)?'check':['steps','cfg','cfgRescale','seed'].includes(key)?'int':'text');
- bind('readable','change',e=>{settings.readable=e.target.checked;ui.classList.toggle('ncs-readable',e.target.checked);persist();});
  bind('qwen-profile','change',e=>{settings.qwenProfile=e.target.value;persist();});bind('refresh-profiles','click',fillProfiles);
  for(const name of ['qwen-instruction','chat-notes','chat-char-negative','chat-persona-negative',...Object.keys(EXTRACT_INSTRUCTIONS).map(k=>'prompt-'+k.replace('.','-'))])bind(name,'input',saveChatState);
  bind('reset-qwen','click',()=>{if(!confirm('Сбросить только основную инструкцию Qwen для этого чата?'))return;el('qwen-instruction').value=QWEN_DEFAULT;saveChatState();});
@@ -399,6 +430,13 @@ function setupBindings(){fillFields();
  bind('npc-save','click',()=>{updateNpc();npcSelect();const npc=settings.npcs.find(x=>x.name===el('npc-name').value);if(npc)el('npc-select').value=npc.id;});
  for(const field of ['npc-name','npc-triggers','npc-main','npc-negative','npc-tag','npc-enabled'])bind(field,field==='npc-enabled'||field==='npc-tag'?'change':'input',updateNpc);
  for(const name of ['manual-scene',...['char','persona'].flatMap(k=>['clothing','action','emotion'].map(part=>`manual-${k}-${part}`))])bind(name,'input',()=>{prepared=null;});
+ async function copyText(value){
+  if(!value)return;
+  try { await navigator.clipboard.writeText(value);setStatus('Промпт скопирован.'); }
+  catch(e){setStatus('Автокопирование недоступно в браузере — выдели содержимое поля и нажми Ctrl+C.');}
+ }
+ bind('copy-preview','click',()=>copyText(prepared?.snap?.positive||settings.lastRequest?.positive||''));
+ bind('copy-provider','click',()=>copyText(JSON.stringify(prepared?.body||settings.lastRequest?.providerBody||{},null,2)));
  bind('btn-scene','click',()=>runJob('scene'));bind('btn-preview','click',()=>runJob('preview'));
  bind('btn-image','click',()=>runJob('image',lastCharacterMessageId()));
  bind('import-old','click',async()=>{const old=ctx().extensionSettings?.inline_image_gen;if(!old){setStatus('Старые настройки inline_image_gen не найдены.');return;}

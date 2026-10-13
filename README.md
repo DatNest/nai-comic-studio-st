@@ -1,3 +1,16 @@
+# NAI Comic Studio v0.2.2 — Scene Tags & Visible Preview
+
+Update for the same repository; upload the five files to the repository root and replace existing files. In SillyTavern update extension and reload with Ctrl+F5. Previous settings, NovelAI key, character library, styles and negatives are stored in settings and not deleted by this update.
+
+- The NovelAI V5 request keeps its structured `v4_prompt.caption.base_caption` and `char_captions` and its corresponding `v4_negative_prompt.caption`. Matching the existing SillyImages request builder.
+- The positive scene now always contains explicit comic/page/panel count/main panel/inset tags. Qwen is asked for precise comic staging and ONLY scene state (not appearances). Persistent custom Qwen instructions stay editable; a small mandatory format contract is appended to all of them.
+- Character action/clothing is foregrounded before the long descriptions in their personal character caption. Every enabled description stays present; no library entries are deleted. Character centers match the old generator default (0.5,0.5 with use_coords=false).
+- Press **1. Qwen: сцена** to regenerate the SCENE when prior output is wrong, then **2. Предпросмотр**. The assembled request appears DIRECTLY BELOW the buttons with separate base scene/style, character, persona, shared negative and character negatives. You can copy the entire positive prompt or provider JSON. No NovelAI Anlas are used until **3. Создать**.
+- The preview checks for an unmatched `::` in your style and warns; it does NOT silently rewrite the style.
+- Other libraries, per-chat settings, NPC activation, negative prompts, Qwen connection, presets and auto-generation are unchanged.
+
+**Limitations:** A text-only diffusion model cannot guarantee facial fidelity or exact multi-panel composition. The code and structured request can be verified locally, not an actual NovelAI generation on your server.
+
 # NAI Comic Studio — v0.2.0 beta
 
 Автономное расширение для SillyTavern и NovelAI V5. Не требует ExtBlocks или старого генератора изображений. Управляет внешностью активного персонажа и персоны, сценой, Qwen, стиль-пресетами, негативами, NPC и отладкой. **Перед платной генерацией есть предпросмотр всего JSON-запроса NovelAI.**
